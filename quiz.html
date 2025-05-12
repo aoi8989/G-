@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI知識テスト (JSON対応版)</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f0f2f5;
+            color: #1c1e21;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start; /* 上寄せに変更 */
+            min-height: 100vh;
+            padding-top: 20px; /* 上部に余白 */
+            box-sizing: border-box;
+        }
+        .container {
+            background-color: #fff;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1), 0 8px 16px rgba(0,0,0,0.1);
+            width: 90%;
+            max-width: 600px; /* 最大幅を設定 */
+        }
+        h1 {
+            font-size: 1.8em;
+            color: #1877f2; /* Facebook風ブルー */
+            text-align: center;
+            margin-bottom: 25px;
+        }
+        .question-container {
+            margin-bottom: 25px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #dddfe2;
+        }
+        .question-container:last-child {
+            border-bottom: none; /* 最後の問題の区切り線は消す */
+            margin-bottom: 0;
+        }
+        .question-title {
+            font-weight: 600; /* 少し太く */
+            margin-bottom: 12px;
+            font-size: 1.15em;
+            color: #050505;
+        }
+        .question-text {
+            margin-bottom: 18px;
+            font-size: 1em;
+            line-height: 1.5;
+        }
+        .options button {
+            display: block;
+            width: 100%;
+            padding: 12px 15px;
+            margin-bottom: 10px;
+            border: 1px solid #ccd0d5;
+            border-radius: 6px;
+            background-color: #f5f6f7;
+            cursor: pointer;
+            text-align: left;
+            font-size: 0.95em;
+            transition: background-color 0.2s ease, border-color 0.2s ease;
+        }
+        .options button:hover {
+            background-color: #e9ebee;
+            border-color: #bcc0c4;
+        }
+        .options button.selected { /* 選択されたボタンのスタイル */
+            border-color: #1877f2;
+            background-color: #e7f3ff;
+        }
+        .options button.correct {
+            background-color: #42b72a; /* 明るい緑 */
+            border-color: #36a420;
+            color: white;
+            font-weight: bold;
+        }
+        .options button.incorrect {
+            background-color: #fa3e3e; /* 明るい赤 */
+            border-color: #e03030;
+            color: white;
+            font-weight: bold;
+        }
+        .options button:disabled:not(.correct):not(.incorrect) { /* 解答後、未選択だったボタン */
+            opacity: 0.7;
+            cursor: default;
+        }
+        .result {
+            margin-top: 12px;
+            font-weight: bold;
+            font-size: 1.05em;
+        }
+        .explanation {
+            margin-top: 15px;
+            padding: 12px;
+            background-color: #f0f0f0;
+            border-radius: 5px;
+            font-size: 0.9em;
+            line-height: 1.6;
+        }
+        .navigation {
+            margin-top: 30px;
+            text-align: center;
+            padding-bottom: 10px; /* 結果表示後のボタンと被らないように */
+        }
+        .navigation button, #result-area button {
+            padding: 10px 20px;
+            margin: 0 8px;
+            border: none;
+            border-radius: 6px;
+            background-color: #1877f2;
+            color: white;
+            cursor: pointer;
+            font-size: 1em;
+            transition: background-color 0.2s ease;
+        }
+        .navigation button:hover, #result-area button:hover {
+            background-color: #166fe5;
+        }
+        .navigation button:disabled {
+            background-color: #ccd0d5;
+            cursor: default;
+        }
+        #result-area {
+            text-align: center;
+        }
+        #result-area h2 {
+            color: #1877f2;
+            margin-bottom: 15px;
+        }
+        #result-area p {
+            font-size: 1.1em;
+            margin-bottom: 25px;
+        }
+        .hidden {
+            display: none;
+        }
+        .loader {
+            text-align: center;
+            font-size: 1.2em;
+            padding: 30px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>AI知識 理解度チェック</h1>
+
+        <div id="quiz-area">
+            <div class="loader">問題を読み込んでいます...</div>
+        </div>
+
+        <div id="result-area" class="hidden">
+            <h2>結果</h2>
+            <p>全 <span id="total-questions"></span> 問中 <span id="score"></span> 問正解です！</p>
+            <button onclick="restartQuiz()">もう一度挑戦する</button>
+        </div>
+
+        <div class="navigation hidden">
+            <button id="prev-btn" onclick="prevQuestion()" disabled>前の問題</button>
+            <button id="next-btn" onclick="nextQuestion()">次の問題</button>
+        </div>
+    </div>
+
+    <script>
+        let allQuizData = [];
+        let currentQuestionIndex = 0;
+        let score = 0;
+        let userAnswers = []; // { selectedOptionIndex: null, isCorrect: null }
+
+        const quizArea = document.getElementById('quiz-area');
+        const resultArea = document.getElementById('result-area');
+        const prevBtn = document.getElementById('prev-btn');
+        const nextBtn = document.getElementById('next-btn');
+        const navigationDiv = document.querySelector('.navigation');
+
+        document.addEventListener('DOMContentLoaded', fetchQuestions);
+
+        async function fetchQuestions() {
+            try {
+                const response = await fetch('./questions.json'); // 同じ階層のquestions.jsonを読み込む
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                allQuizData = await response.json();
+                if (allQuizData && allQuizData.length > 0) {
+                    userAnswers = new Array(allQuizData.length).fill(null).map(() => ({ selectedOptionIndex: null, isCorrect: null }));
+                    loadQuestion(currentQuestionIndex);
+                    navigationDiv.classList.remove('hidden');
+                } else {
+                    quizArea.innerHTML = '<p>問題データが空です。</p>';
+                }
+            } catch (error) {
+                console.error("問題データの読み込みに失敗しました:", error);
+                quizArea.innerHTML = `<p>問題データの読み込みに失敗しました。ファイルが存在し、書式が正しいか確認してください。(エラー: ${error.message})</p><p>ローカルで試している場合、ブラウザのセキュリティ制限によりJSONファイルが読み込めないことがあります。ローカルサーバーを経由してアクセスしてください。</p>`;
+            }
+        }
+
+        function loadQuestion(index) {
+            if (index < 0 || index >= allQuizData.length) return;
+
+            const questionData = allQuizData[index];
+            quizArea.innerHTML = `
+                <div class="question-container" id="${questionData.id}">
+                    <p class="question-title">${questionData.title}</p>
+                    ${questionData.questionText ? `<p class="question-text">${questionData.questionText}</p>` : ''}
+                    <div class="options">
+                        ${questionData.options.map((option, i) => `
+                            <button data-index="${i}" onclick="selectAnswer('${questionData.id}', ${i})">
+                                ${option.text}
+                            </button>
+                        `).join('')}
+                    </div>
+                    <div class="result" id="result-${questionData.id}"></div>
+                    <div class="explanation hidden" id="explanation-${questionData.id}">${questionData.explanation || ''}</div>
+                </div>
+            `;
+            updateNavigation();
+            restoreAnswerSelection(questionData.id, index);
+
+            if (index === allQuizData.length - 1 && userAnswers[index] && userAnswers[index].selectedOptionIndex !== null) {
+                nextBtn.textContent = '結果を見る';
+            } else {
+                nextBtn.textContent = '次の問題';
+            }
+        }
+
+        function selectAnswer(questionId, optionIndex) {
+            if (userAnswers[currentQuestionIndex] && userAnswers[currentQuestionIndex].selectedOptionIndex !== null) {
+                return; // 既に解答済みなら何もしない
+            }
+
+            const questionData = allQuizData[currentQuestionIndex];
+            const isCorrect = questionData.options[optionIndex].answer;
+
+            userAnswers[currentQuestionIndex] = { selectedOptionIndex: optionIndex, isCorrect: isCorrect };
+
+            const optionsContainer = document.querySelector(`#${questionId} .options`);
+            const buttons = optionsContainer.querySelectorAll('button');
+            const resultDiv = document.getElementById(`result-${questionId}`);
+            const explanationDiv = document.getElementById(`explanation-${questionId}`);
+
+            buttons.forEach((btn, i) => {
+                btn.disabled = true; // 全てのボタンを無効化
+                if (i === optionIndex) {
+                    btn.classList.add(isCorrect ? 'correct' : 'incorrect');
+                } else if (questionData.options[i].answer) {
+                    // 不正解の場合、正解の選択肢も示す（任意）
+                    if(!isCorrect) btn.classList.add('correct');
+                }
+            });
+
+            resultDiv.textContent = isCorrect ? '正解！' : '不正解';
+            resultDiv.style.color = isCorrect ? '#42b72a' : '#fa3e3e';
+            explanationDiv.classList.remove('hidden');
+
+            if (currentQuestionIndex === allQuizData.length - 1) {
+                nextBtn.textContent = '結果を見る';
+            }
+        }
+
+        function restoreAnswerSelection(questionId, index) {
+            const userAnswer = userAnswers[index];
+            if (userAnswer && userAnswer.selectedOptionIndex !== null) {
+                const questionData = allQuizData[index];
+                const optionsContainer = document.querySelector(`#${questionId} .options`);
+                const buttons = optionsContainer.querySelectorAll('button');
+                const resultDiv = document.getElementById(`result-${questionId}`);
+                const explanationDiv = document.getElementById(`explanation-${questionId}`);
+
+                buttons.forEach((btn, i) => {
+                    btn.disabled = true;
+                    if (i === userAnswer.selectedOptionIndex) {
+                        btn.classList.add(userAnswer.isCorrect ? 'correct' : 'incorrect');
+                    } else if (questionData.options[i].answer) {
+                         if(!userAnswer.isCorrect) btn.classList.add('correct');
+                    }
+                });
+
+                resultDiv.textContent = userAnswer.isCorrect ? '正解！' : '不正解';
+                resultDiv.style.color = userAnswer.isCorrect ? '#42b72a' : '#fa3e3e';
+                explanationDiv.classList.remove('hidden');
+            }
+        }
+
+        function nextQuestion() {
+            if (currentQuestionIndex < allQuizData.length - 1) {
+                currentQuestionIndex++;
+                loadQuestion(currentQuestionIndex);
+            } else {
+                showResults();
+            }
+        }
+
+        function prevQuestion() {
+            if (currentQuestionIndex > 0) {
+                currentQuestionIndex--;
+                loadQuestion(currentQuestionIndex);
+            }
+        }
+
+        function updateNavigation() {
+            prevBtn.disabled = currentQuestionIndex === 0;
+            // 次へボタンは常に有効、最後の問題で「結果を見る」に変わる
+        }
+
+        function showResults() {
+            quizArea.classList.add('hidden');
+            navigationDiv.classList.add('hidden');
+            resultArea.classList.remove('hidden');
+
+            score = userAnswers.filter(answer => answer && answer.isCorrect).length;
+            document.getElementById('total-questions').textContent = allQuizData.length;
+            document.getElementById('score').textContent = score;
+        }
+
+        function restartQuiz() {
+            currentQuestionIndex = 0;
+            score = 0;
+            userAnswers = new Array(allQuizData.length).fill(null).map(() => ({ selectedOptionIndex: null, isCorrect: null }));
+            quizArea.classList.remove('hidden');
+            navigationDiv.classList.remove('hidden');
+            resultArea.classList.add('hidden');
+            nextBtn.textContent = '次の問題';
+            loadQuestion(currentQuestionIndex);
+        }
+    </script>
+</body>
+</html>
